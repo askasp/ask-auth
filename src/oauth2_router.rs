@@ -2,32 +2,32 @@ use axum::{
     async_trait,
     extract::{FromRequestParts, Query},
     http::{request::Parts, StatusCode},
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::get,
     Extension, Router,
 };
 use oauth2::{reqwest::async_http_client, AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use serde::Deserialize;
-
 use std::sync::{Arc, OnceLock};
 use tower_cookies::{cookie::time, Cookie, CookieManagerLayer, Cookies, Key};
-
 use tracing::{event, instrument, Level};
-
-use crate::oauth2_manager::Oauth2Manager;
 use crate::oauth2_provider::UserId;
-
+use crate::oauth2_manager::Oauth2Manager;
 
 pub static KEY: OnceLock<Key> = OnceLock::new();
 const USER_COOKIE_NAME: &str = "user_id_name";
 const CSRF_TOKEN_NAME: &str = "CSRF_TOKEN";
 
-pub fn setup_routes(auth_manager: Arc<Oauth2Manager>) -> Router {
+pub fn setup_routes(auth_manager: Arc<Oauth2Manager>, cookie_key: String) -> Router {
+    KEY.set(Key::derive_from(cookie_key.clone().as_bytes()))
+        .ok();
+
     Router::new()
         .route("/:provider/start", get(oauth_start))
         .route("/:provider/callback", get(oauth_callback))
         .route("/protected", get(protected_route))
         .route("/logout", get(logout))
+        .route("/login", get(login))
         .layer(CookieManagerLayer::new())
         .layer(Extension(auth_manager))
 }
@@ -44,12 +44,114 @@ async fn logout(cookies: Cookies) -> impl IntoResponse {
 
     Redirect::temporary("/").into_response()
 }
+
+async fn login(
+    Extension(auth_manager): Extension<Arc<Oauth2Manager>>,
+    user_id: Option<UserId>,
+) -> impl IntoResponse {
+    let auth_manager = auth_manager.clone();
+    let providers = auth_manager.get_providers(); // This function should return your providers hashmap
+
+    // Generate the login buttons HTML
+    let buttons_html = providers
+        .iter()
+        .map(|(name, _provider)| {
+            format!(
+                r#"<a href="/auth/{}/start" class="login-button">Sign in with {}</a>"#,
+                name, name
+            )
+        })
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    // Full HTML with card and buttons
+    let html_content = format!(
+        r#"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+        body, html {{
+            height: 100%;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f9fafb;
+            font-family: Arial, sans-serif;">
+
+        }}
+        .hr {{
+            margin-top: 1em;
+            margin-bottom: 1em;
+            border: 0;
+            border-top: 2px solid #e5e7eb;
+        }}
+        .card {{
+            padding: 20px 20px 20px 20px;
+            background-color: white;
+            border-radius: 8px;
+            min-width: 400px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }}
+        .login-title {{
+            margin-bottom: 5px;
+            font-size: 1.5em;
+            font-weight: 600;
+            text-align: left;
+            color: #333;
+        }}
+        
+        .login-text{{
+            margin-bottom: 0em;
+            font-size: 0.9em;
+            text-align: left;
+            color: #333;
+            opacity:0.8
+        }}
+
+        .login-button {{
+            display: block;
+            padding: 6px;
+            margin-bottom: 10px;
+            font-size: 1em;
+            color: black;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 0.4em;
+            border: 1px solid #e5e7eb;
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="login-title">Welcome</div>
+        <div class="login-text">Sign up/in with your preferred provider</div>
+        <div class="hr"></div>
+
+        {buttons_html}
+    </div>
+</body>
+</html>
+"#
+    );
+
+    match user_id {
+        Some(_user_id) => Html("<p> You are logged in already</p>".to_string()),
+        None => Html(html_content),
+    }
+}
 #[instrument(skip_all)]
 async fn oauth_start(
     Extension(auth_manager): Extension<Arc<Oauth2Manager>>,
     axum::extract::Path(provider_name): axum::extract::Path<String>,
     cookies: Cookies,
 ) -> impl IntoResponse {
+    let auth_manager = auth_manager.clone();
     if let Some(provider) = auth_manager.get_provider(&provider_name) {
         let mut client_builder = provider.oauth_client().authorize_url(CsrfToken::new_random);
         for scope in provider.scopes().iter() {

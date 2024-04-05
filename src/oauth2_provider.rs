@@ -6,7 +6,7 @@ use reqwest::Response;
 pub struct UserId(pub String);
 
 #[async_trait]
-pub trait OAuth2Provider:  Send + Sync {
+pub trait Oauth2Provider:  Send + Sync {
     fn scopes(&self) -> Vec<String>;
     fn oauth_client(&self) -> &BasicClient;
     fn user_info_url(&self) -> &str;
