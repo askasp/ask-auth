@@ -1,0 +1,18 @@
+[package]
+name = "google_and_vipps"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oauth2 = "4.4.2"
+ask-auth = {path= "../../"}
+anyhow = "1.0.81"
+serde = "1.0.197"
+reqwest = "0.12.2"
+tracing = "0.1.40"
+async-trait = "0.1.79"
+axum = "0.7.5"
+tokio = "1.37.0"
+dotenv = "0.15.0"
+tower-sessions = "0.12.1"
+tower-cookies = "0.10.0"
