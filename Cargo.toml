@@ -1,0 +1,22 @@
+[package]
+name = "ask-auth"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = { version = "0.7.4", features = ["macros", "query"] }
+oasgen = "0.20.1"
+serde = { version = "1.0.197", features = ["derive"] }
+tokio = { version = "1.36.0", features = ["full"] }
+tracing-subscriber = "0.3.18"
+anyhow = "1.0.81"
+oauth2 = "4.4.2"
+tracing = "0.1.40"
+reqwest = { version = "0.12.2", features = ["json"] }
+axum-login = "0.15.0"
+tower-sessions = "0.12.0"
+tower-cookies = {version="0.10.0", features = ["private", "signed"]}
+async-trait = "0.1.79"
+
