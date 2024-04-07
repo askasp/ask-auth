@@ -21,7 +21,7 @@ use tower_cookies::{cookie::time, Cookie, CookieManagerLayer, Cookies, Key};
 use tracing::{event, instrument, Level};
 
 pub static KEY: OnceLock<Key> = OnceLock::new();
-const USER_COOKIE_NAME: &str = "user_id_name";
+const USER_COOKIE_NAME: &str = "ask-auth-id";
 const CSRF_TOKEN_NAME: &str = "CSRF_TOKEN";
 
 pub fn setup_routes(auth_manager: Arc<Oauth2Manager>, cookie_key: String) -> Router {
