@@ -1,7 +1,7 @@
 # Simple OAuth2 Library for Rust
 
 This library provides a straightforward way of adding login and auth to your axum backend. 
-Its database agnostic and is designed for projects that require basic OAuth2 functionality with session management through client-side cookies.
+It's database agnostic and is designed for projects that require basic OAuth2 functionality with session management through client-side cookies.
 I.e. no need for redis or other server side session management.
 
 ## Warning!
@@ -20,7 +20,7 @@ This is not production ready, there might still be parts of the oidc spec i'm no
 
 ### Prerequisites
 
-Ensure that you have Rust and Cargo installed on your system. This library uses `axum` for web handling and oauth2 for the basic authentication pingponging with the oauth2 provider.
+Ensure that you have Rust and Cargo installed on your system. This library uses `axum` for web handling and oauth2 for the basic authentication pingponging with the oauth2 crate.
 
 ### Installation
 
