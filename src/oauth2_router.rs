@@ -234,8 +234,6 @@ enum AuthError {
     #[error("CSRF token mismatch or not found")]
     CsrfError,
     #[error("Internal Server Error")]
-    InternalServerError,
-    #[error("Provider not found")]
     ProviderNotFound, // You can add more error types as needed
     #[error("Failed to get token")]
     TokenError,

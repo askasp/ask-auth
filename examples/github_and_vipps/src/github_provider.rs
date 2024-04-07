@@ -8,7 +8,6 @@ use ask_auth::{
     oauth2_provider::{Oauth2Config, UserId},
     Oauth2Provider,
 };
-use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 use reqwest::Response;
 use serde::Deserialize;
 use tracing::{event, instrument, Level};
