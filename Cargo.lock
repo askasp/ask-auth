@@ -94,6 +94,8 @@ dependencies = [
  "oauth2",
  "reqwest 0.12.2",
  "serde",
+ "serde_json",
+ "thiserror",
  "tokio",
  "tower-cookies",
  "tower-sessions",
