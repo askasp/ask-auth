@@ -53,7 +53,6 @@ impl Oauth2Provider for VippsProvider {
             .unwrap()
             .insert(vipps_user.sub.clone(), vipps_user.sub.clone());
 
-        event!(Level::INFO, "INserting new session");
         Ok(UserId(vipps_user.sub.clone()))
     }
 }

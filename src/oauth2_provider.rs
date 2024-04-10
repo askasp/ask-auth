@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 use reqwest::Response;
 
+#[derive(Debug)]
 pub struct UserId(pub String);
 
 pub struct Oauth2Config {
