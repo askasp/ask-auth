@@ -185,7 +185,7 @@ async fn oauth_callback(
         .build();
     private_cookies.add(cookie);
 
-    Ok(Redirect::temporary("/protected").into_response())
+    Ok(Redirect::temporary("/").into_response())
 }
 
 async fn protected_route(user_id: UserId) -> impl IntoResponse {
