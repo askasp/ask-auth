@@ -148,7 +148,11 @@ async fn oauth_callback(
 ) -> Result<impl IntoResponse, AuthError> {
     let auth_manager = auth_manager.clone();
 
-    verify_csrf_token(&cookies, &query.state)?;
+    match verify_csrf_token(&cookies, &query.state){
+        Ok(_) => (),
+        Err(e) => return Ok(Redirect::temporary("/").into_response())
+
+    };
     // Retrieve the provider based on the provider name
     let provider = auth_manager
         .get_provider(&provider_name)
@@ -161,9 +165,11 @@ async fn oauth_callback(
     )
     .await?;
 
+    event!(Level::INFO, "Token received {:?}", token);
+
     let user_info = get_user_info(provider, token.access_token().secret()).await?;
 
-    event!(Level::DEBUG, "User info received {:?}", user_info);
+    event!(Level::INFO, "User info received {:?}", user_info);
 
     let user_id = provider
         .authenticate_and_upsert(user_info)
