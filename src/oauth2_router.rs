@@ -169,8 +169,6 @@ async fn oauth_callback(
 
     let user_info = get_user_info(provider, token.access_token().secret()).await?;
 
-    event!(Level::INFO, "User info received {:?}", user_info);
-
     let user_id = provider
         .authenticate_and_upsert(user_info)
         .await
