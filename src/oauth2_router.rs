@@ -14,7 +14,8 @@ use oauth2::{
     AuthorizationCode, CsrfToken, EmptyExtraTokenFields, Scope, StandardTokenResponse,
     TokenResponse,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 use tower_cookies::{cookie::time, Cookie, CookieManagerLayer, Cookies, Key};
@@ -23,6 +24,13 @@ use tracing::{event, instrument, Level};
 pub static KEY: OnceLock<Key> = OnceLock::new();
 const USER_COOKIE_NAME: &str = "ask-auth-id";
 const CSRF_TOKEN_NAME: &str = "CSRF_TOKEN";
+
+const STATE_COOKE: &str = "state_cookie";
+
+#[derive(Deserialize, Serialize)]
+struct StateParam {
+    state_params: Option<String>,
+}
 
 pub fn setup_routes(auth_manager: Arc<Oauth2Manager>, cookie_key: String) -> Router {
     KEY.set(Key::derive_from(cookie_key.clone().as_bytes()))
@@ -55,6 +63,7 @@ async fn logout(cookies: Cookies) -> impl IntoResponse {
 async fn oauth_start(
     Extension(auth_manager): Extension<Arc<Oauth2Manager>>,
     axum::extract::Path(provider_name): axum::extract::Path<String>,
+    Query(state_param): Query<StateParam>,
     cookies: Cookies,
 ) -> impl IntoResponse {
     let auth_manager = auth_manager.clone();
@@ -72,6 +81,22 @@ async fn oauth_start(
             .secure(true)
             .build();
         cookies.add(cookie);
+
+        event!(
+            Level::ERROR,
+            "State param writing to cookie is {:?}",
+            state_param.state_params
+        );
+
+        if let Some(state_param_string) = state_param.state_params {
+            let state_cookie = Cookie::build((STATE_COOKE, state_param_string))
+                .path("/")
+                .http_only(true)
+                .secure(true)
+                .expires(time::OffsetDateTime::now_utc() + time::Duration::hours(1))
+                .finish();
+            cookies.add(state_cookie);
+        }
 
         event!(Level::INFO, "Redirecting to vipps {:?}", auth_url.as_str());
         Redirect::temporary(auth_url.as_str()).into_response()
@@ -148,10 +173,9 @@ async fn oauth_callback(
 ) -> Result<impl IntoResponse, AuthError> {
     let auth_manager = auth_manager.clone();
 
-    match verify_csrf_token(&cookies, &query.state){
+    match verify_csrf_token(&cookies, &query.state) {
         Ok(_) => (),
-        Err(e) => return Ok(Redirect::temporary("/").into_response())
-
+        Err(e) => return Ok(Redirect::temporary("/").into_response()),
     };
     // Retrieve the provider based on the provider name
     let provider = auth_manager
@@ -169,8 +193,23 @@ async fn oauth_callback(
 
     let user_info = get_user_info(provider, token.access_token().secret()).await?;
 
+    let state_cookie_string = cookies
+        .get(STATE_COOKE)
+        .map(|cookie| cookie.value().to_owned());
+
+    event!(
+        Level::DEBUG,
+        "State cookie string {:?}",
+        state_cookie_string
+    );
+
+    let state_map: HashMap<String, String> = match state_cookie_string {
+        Some(state_cookie_string) => serde_json::from_str(&state_cookie_string).unwrap_or_default(),
+        None => HashMap::new(),
+    };
+
     let user_id = provider
-        .authenticate_and_upsert(user_info)
+        .authenticate_and_upsert(user_info, state_map)
         .await
         .map_err(|e| {
             event!(Level::ERROR, "Failed to authenticate user {:?}", e);
@@ -223,13 +262,13 @@ where
         let user_id_cookie_res = private_cookies.get(USER_COOKIE_NAME);
 
         event!(
-            Level::INFO,
+            Level::DEBUG,
             "In from_request_parts got user_id cookie {:?}",
             user_id_cookie_res
         );
         let temp_id = user_id_cookie_res.ok_or(AuthRedirect)?;
         let user_id_cookie = temp_id.value();
-        event!(Level::INFO, "In parserd userid cookie got user_id");
+        event!(Level::DEBUG, "In parserd userid cookie got user_id");
         Ok(UserId(user_id_cookie.to_string()))
     }
 }

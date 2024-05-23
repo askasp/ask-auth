@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use anyhow::Context;
 use async_trait::async_trait;
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 use reqwest::Response;
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct UserId(pub String);
 
 pub struct Oauth2Config {
@@ -44,7 +46,7 @@ impl Oauth2Config {
 #[async_trait]
 pub trait Oauth2Provider: Send + Sync {
     fn get_config(&self) -> &Oauth2Config;
-    async fn authenticate_and_upsert(&self, user_info: Response) -> Result<UserId, anyhow::Error>;
+    async fn authenticate_and_upsert(&self, user_info: Response, state_params: HashMap<String,String>) -> Result<UserId, anyhow::Error>;
     async fn get_user_info(&self, token: &str) -> Result<Response, anyhow::Error> {
         let client = reqwest::Client::new();
         let user_info = client

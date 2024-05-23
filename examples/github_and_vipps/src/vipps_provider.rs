@@ -41,7 +41,7 @@ impl Oauth2Provider for VippsProvider {
     fn get_config(&self) -> &Oauth2Config {
         &self.oauth2_config
     }
-    async fn authenticate_and_upsert(&self, user_info: Response) -> Result<UserId, anyhow::Error> {
+    async fn authenticate_and_upsert(&self, user_info: Response, state_param: HashMap<String,String>) -> Result<UserId, anyhow::Error> {
         let vipps_user: VippsUser = user_info.json::<VippsUser>().await.unwrap();
         event!(
             Level::INFO,

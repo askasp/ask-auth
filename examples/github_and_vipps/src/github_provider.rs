@@ -41,7 +41,7 @@ impl Oauth2Provider for GithubProvider {
         &self.oauth2_config
     }
     #[instrument(skip(self))]
-    async fn authenticate_and_upsert(&self, user_info: Response) -> Result<UserId, anyhow::Error> {
+    async fn authenticate_and_upsert(&self, user_info: Response, state_param: HashMap<String,String>) -> Result<UserId, anyhow::Error> {
         event!(Level::INFO, "Authenticating user got json");
 
         let vipps_user: GithubUser = user_info.json::<GithubUser>().await.unwrap();
