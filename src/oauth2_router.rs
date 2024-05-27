@@ -223,7 +223,7 @@ async fn oauth_callback(
     let cookie = Cookie::build((USER_COOKIE_NAME, user_id.0))
         .path("/")
         .http_only(true)
-        .expires(time::OffsetDateTime::now_utc() + time::Duration::days(1))
+        .expires(time::OffsetDateTime::now_utc() + time::Duration::days(30))
         .secure(true)
         .build();
     private_cookies.add(cookie);
