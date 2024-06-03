@@ -55,7 +55,7 @@ impl Oauth2Provider for GithubProvider {
             vipps_user.id.clone().to_string(),
         );
 
-        event!(Level::INFO, "INserting new session");
+        event!(Level::INFO, "Inserting new session");
         Ok(UserId(vipps_user.id.clone().to_string()))
     }
     #[instrument(skip(self))]

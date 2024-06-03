@@ -1,5 +1,6 @@
 use crate::oauth2_provider::UserId;
 use crate::{oauth2_manager::Oauth2Manager, Oauth2Provider};
+use axum::extract::State;
 use axum::{
     async_trait,
     extract::{FromRequestParts, Query},
@@ -14,18 +15,54 @@ use oauth2::{
     AuthorizationCode, CsrfToken, EmptyExtraTokenFields, Scope, StandardTokenResponse,
     TokenResponse,
 };
+use oauth2::{PkceCodeChallenge, PkceCodeVerifier};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Once, OnceLock};
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tower_cookies::{cookie::time, Cookie, CookieManagerLayer, Cookies, Key};
 use tracing::{event, instrument, Level};
 
 pub static KEY: OnceLock<Key> = OnceLock::new();
+pub static MC: OnceLock<MagicCrypt256> = OnceLock::new();
 const USER_COOKIE_NAME: &str = "ask-auth-id";
 const CSRF_TOKEN_NAME: &str = "CSRF_TOKEN";
+const PKCE_CHALLENGE: &str = "PKCE_CHALLENGE";
 
 const STATE_COOKE: &str = "state_cookie";
+use magic_crypt::{new_magic_crypt, MagicCrypt256, MagicCryptTrait};
+
+#[derive(Debug, Clone)]
+struct AskAuthAppState {
+    code_pairs: Arc<Mutex<HashMap<String, String>>>, // key: code_challenge, value: code_verifier
+}
+impl AskAuthAppState {
+    fn new() -> Self {
+        AskAuthAppState {
+            code_pairs: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    // Add a new code challenge and code verifier pair
+    async fn add_pair(&self, code_challenge: String, code_verifier: String) {
+        let mut map = self.code_pairs.lock().await;
+        map.insert(code_challenge, code_verifier);
+    }
+
+    // Retrieve the code verifier for a given code challenge
+    async fn get_verifier(&self, code_challenge: &str) -> Option<String> {
+        let map = self.code_pairs.lock().await;
+        map.get(code_challenge).cloned()
+    }
+
+    // Remove a code challenge and code verifier pair
+    async fn remove_pair(&self, code_challenge: &str) -> Option<String> {
+        let mut map = self.code_pairs.lock().await;
+        map.remove(code_challenge)
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 struct StateParam {
@@ -36,6 +73,10 @@ pub fn setup_routes(auth_manager: Arc<Oauth2Manager>, cookie_key: String) -> Rou
     KEY.set(Key::derive_from(cookie_key.clone().as_bytes()))
         .ok();
 
+    MC.set(new_magic_crypt!(cookie_key, 256)).ok();
+
+    let app_state = AskAuthAppState::new();
+
     Router::new()
         .route("/:provider/start", get(oauth_start))
         .route("/:provider/callback", get(oauth_callback))
@@ -44,6 +85,7 @@ pub fn setup_routes(auth_manager: Arc<Oauth2Manager>, cookie_key: String) -> Rou
         .route("/login", get(login))
         .layer(CookieManagerLayer::new())
         .layer(Extension(auth_manager))
+        .with_state(app_state)
 }
 async fn logout(cookies: Cookies) -> impl IntoResponse {
     let key = KEY.get().unwrap();
@@ -65,8 +107,10 @@ async fn oauth_start(
     axum::extract::Path(provider_name): axum::extract::Path<String>,
     Query(state_param): Query<StateParam>,
     cookies: Cookies,
+    State(app_state): State<AskAuthAppState>,
 ) -> impl IntoResponse {
     let auth_manager = auth_manager.clone();
+
     if let Some(provider) = auth_manager.get_provider(&provider_name) {
         let config = provider.get_config();
         let mut client_builder = config.oauth_client.authorize_url(CsrfToken::new_random);
@@ -74,32 +118,68 @@ async fn oauth_start(
             client_builder = client_builder.add_scope(Scope::new(scope.clone()));
         }
 
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+        let pkce_challenge_clone = pkce_challenge.as_str().to_string();
+
+        client_builder = client_builder.set_pkce_challenge(pkce_challenge);
+        app_state
+            .add_pair(
+                pkce_challenge_clone.clone(),
+                pkce_verifier.secret().to_owned(),
+            )
+            .await;
+
         let (auth_url, csrf_token) = client_builder.url();
-        let cookie = Cookie::build((CSRF_TOKEN_NAME, csrf_token.secret().to_owned()))
-            .path("/")
-            .http_only(true)
-            .secure(true)
-            .build();
-        cookies.add(cookie);
+        match config.is_native {
+            false => {
+                let cookie = Cookie::build((CSRF_TOKEN_NAME, csrf_token.secret().to_owned()))
+                    .path("/")
+                    .http_only(true)
+                    .secure(true)
+                    .build();
 
-        event!(
-            Level::ERROR,
-            "State param writing to cookie is {:?}",
-            state_param.state_params
-        );
+                cookies.add(cookie);
 
-        if let Some(state_param_string) = state_param.state_params {
-            let state_cookie = Cookie::build((STATE_COOKE, state_param_string))
-                .path("/")
-                .http_only(true)
-                .secure(true)
-                .expires(time::OffsetDateTime::now_utc() + time::Duration::hours(1))
-                .finish();
-            cookies.add(state_cookie);
+                let pkce_cookie = Cookie::build((PKCE_CHALLENGE, pkce_challenge_clone))
+                    .path("/")
+                    .http_only(true)
+                    .secure(true)
+                    .build();
+
+                cookies.add(pkce_cookie);
+
+                event!(
+                    Level::WARN,
+                    "State param writing to cookie is {:?}",
+                    state_param.state_params
+                );
+
+                if let Some(state_param_string) = state_param.state_params {
+                    let state_cookie = Cookie::build((STATE_COOKE, state_param_string))
+                        .path("/")
+                        .http_only(true)
+                        .secure(true)
+                        .expires(time::OffsetDateTime::now_utc() + time::Duration::hours(1))
+                        .finish();
+                    cookies.add(state_cookie);
+                }
+
+                event!(Level::INFO, "Redirecting to vipps {:?}", auth_url.as_str());
+                Redirect::temporary(auth_url.as_str()).into_response()
+            }
+            true => {
+                event!(
+                    Level::INFO,
+                    "Returning auth url and pkce challenge to native app"
+                );
+                let json_response = json!({
+                    "auth_url": auth_url.to_string(),
+                    "pkce_challenge": pkce_challenge_clone,
+                });
+
+                (StatusCode::OK, axum::Json(json_response)).into_response()
+            }
         }
-
-        event!(Level::INFO, "Redirecting to vipps {:?}", auth_url.as_str());
-        Redirect::temporary(auth_url.as_str()).into_response()
     } else {
         (StatusCode::NOT_FOUND, "Provider not found").into_response()
     }
@@ -110,6 +190,7 @@ async fn oauth_start(
 struct AuthRequest2 {
     code: String,
     state: String,
+    pkce_challenge: Option<String>,
 }
 
 fn verify_csrf_token(cookies: &Cookies, csrf_token: &str) -> Result<(), AuthError> {
@@ -126,9 +207,11 @@ fn verify_csrf_token(cookies: &Cookies, csrf_token: &str) -> Result<(), AuthErro
 async fn get_token(
     client: &BasicClient,
     code: AuthorizationCode,
+    pkce_verifier: PkceCodeVerifier,
 ) -> Result<StandardTokenResponse<EmptyExtraTokenFields, BasicTokenType>, AuthError> {
     client
         .exchange_code(code)
+        .set_pkce_verifier(pkce_verifier)
         .request_async(async_http_client)
         .await
         .map_err(|err| {
@@ -170,22 +253,56 @@ async fn oauth_callback(
     Extension(auth_manager): Extension<Arc<Oauth2Manager>>,
     cookies: Cookies,
     axum::extract::Path(provider_name): axum::extract::Path<String>,
+    State(app_state): State<AskAuthAppState>,
 ) -> Result<impl IntoResponse, AuthError> {
     let auth_manager = auth_manager.clone();
 
-    match verify_csrf_token(&cookies, &query.state) {
-        Ok(_) => (),
-        Err(e) => return Ok(Redirect::temporary("/").into_response()),
-    };
-    // Retrieve the provider based on the provider name
     let provider = auth_manager
         .get_provider(&provider_name)
         .ok_or_else(|| AuthError::ProviderNotFound)?;
 
     let provider_config = provider.get_config();
+
+    if !provider_config.is_native {
+        match verify_csrf_token(&cookies, &query.state) {
+            Ok(_) => (),
+            Err(e) => return Ok(Redirect::temporary("/").into_response()),
+        };
+    }
+
+    event!(
+        Level::INFO,
+        "oauthcallback fetching pkce challenge from query {:?} or cookie ",
+        query
+    );
+
+    let pkce_challenge = match &query.pkce_challenge {
+        Some(pkce_challenge) => pkce_challenge.clone(),
+        None => cookies
+            .get(PKCE_CHALLENGE)
+            .map(|cookie| cookie.value().to_owned())
+            .ok_or(AuthError::PkceError)?,
+    };
+
+    event!(
+        Level::INFO,
+        "oauthcallback got pkce challenge {}",
+        pkce_challenge
+    );
+
+    let pkce_verifier = PkceCodeVerifier::new(
+        app_state
+            .get_verifier(&pkce_challenge)
+            .await
+            .ok_or(AuthError::PkceError)?,
+    );
+    event!(Level::INFO, "got pkce verifier {}", pkce_verifier.secret());
+
+    // Retrieve the provider based on the provider name
     let token = get_token(
         &provider_config.oauth_client,
         AuthorizationCode::new(query.code.clone()),
+        pkce_verifier,
     )
     .await?;
 
@@ -218,17 +335,28 @@ async fn oauth_callback(
 
     event!(Level::DEBUG, "user_id received by upserting {}", user_id.0);
 
-    let key = KEY.get().unwrap();
-    let private_cookies = cookies.private(key);
-    let cookie = Cookie::build((USER_COOKIE_NAME, user_id.0))
-        .path("/")
-        .http_only(true)
-        .expires(time::OffsetDateTime::now_utc() + time::Duration::days(30))
-        .secure(true)
-        .build();
-    private_cookies.add(cookie);
+    match provider_config.is_native {
+        false => {
+            let key = KEY.get().unwrap();
+            let private_cookies = cookies.private(key);
+            let cookie = Cookie::build((USER_COOKIE_NAME, user_id.0))
+                .path("/")
+                .http_only(true)
+                .expires(time::OffsetDateTime::now_utc() + time::Duration::days(30))
+                .secure(true)
+                .build();
+            private_cookies.add(cookie);
 
-    Ok(Redirect::temporary("/").into_response())
+            Ok(Redirect::temporary("/").into_response())
+        }
+        true => {
+            let mc = MC.get().unwrap();
+            let user_token = mc.encrypt_str_to_base64(&user_id.0);
+            //return user_id as an encrypted token, with a short expiry time
+            let response_json = json!({ "access_token": user_token});
+            Ok((StatusCode::OK, axum::Json(response_json)).into_response())
+        }
+    }
 }
 
 async fn protected_route(user_id: UserId) -> impl IntoResponse {
@@ -253,6 +381,24 @@ where
     #[instrument(skip_all)]
     async fn from_request_parts(req: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         event!(Level::INFO, "In from_request_parts");
+        // Check for the Authorization header
+
+        // let auth_header = req.headers.get("Authorization");
+        if let Some(auth_header) = req.headers.get("Authorization") {
+            if let Ok(auth_str) = auth_header.to_str() {
+                if auth_str.starts_with("Bearer ") {
+                    let token = &auth_str["Bearer ".len()..];
+                    event!(Level::INFO, "Found Authorization header: {}", token);
+                    let mc = MC.get().unwrap();
+
+                    // Decode the token (assuming JWT or similar)
+                    let maybe_user_id = mc.decrypt_base64_to_string(token);
+                    if let Ok(user_id) = maybe_user_id {
+                        return Ok(UserId(user_id));
+                    }
+                }
+            }
+        }
 
         let cookies = Cookies::from_request_parts(req, state).await.unwrap();
         let key = KEY.get().unwrap();
@@ -276,7 +422,9 @@ where
 enum AuthError {
     #[error("CSRF token mismatch or not found")]
     CsrfError,
-    #[error("Internal Server Error")]
+    #[error("PKCE Error")]
+    PkceError,
+    #[error("Provider not found")]
     ProviderNotFound, // You can add more error types as needed
     #[error("Failed to get token")]
     TokenError,
@@ -289,6 +437,7 @@ impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         let status = match &self {
             AuthError::CsrfError => StatusCode::UNAUTHORIZED,
+            AuthError::PkceError => StatusCode::UNAUTHORIZED,
             AuthError::ProviderNotFound => StatusCode::BAD_REQUEST,
             AuthError::TokenError => StatusCode::UNAUTHORIZED,
             AuthError::UserInfoError => StatusCode::UNAUTHORIZED,
