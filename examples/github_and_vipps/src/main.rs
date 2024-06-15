@@ -5,15 +5,20 @@ use std::{
 };
 
 use ask_auth::{
-    oauth2_provider::{Oauth2Config, UserId},
+    auth_manager::AuthProviderManager,
+    auth_provider::{AuthProvider, UserId},
+    auth_router::auth_routes,
+    oauth2_provider::{Oauth2Config, UserIdOld},
     setup_routes, Oauth2Manager,
 };
 use axum::{response::Html, routing::get, Router};
 use github_provider::GithubProvider;
+use oauth2::basic::BasicClient;
 use tower_cookies::CookieManagerLayer;
 use tracing::event;
 
 mod github_provider;
+mod github_provider_new;
 mod vipps_provider;
 use crate::vipps_provider::VippsProvider;
 
@@ -45,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             vipps_token_url.clone(),
             vipps_user_info_url.clone(),
             vec!["openid".to_string()],
+            false,
         ),
         database.clone(),
     );
@@ -69,20 +75,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "email".to_string(),
                 "profile".to_string(),
             ],
+            false,
         ),
         database.clone(),
     );
 
     let mut auth_manager = Oauth2Manager::new();
 
+    let mut auth_manager_dos = AuthProviderManager::new();
+
+    let gh_new = github_provider_new::create_github_provider();
+
+
     auth_manager.add_provider("vipps".to_string(), vipps_provider);
     auth_manager.add_provider("github".to_string(), github_provider);
     let auth_manager = Arc::new(auth_manager);
 
-    let routes = setup_routes(auth_manager, cookie_key_string);
+    auth_manager_dos.add_provider("github".to_string(), gh_new);
+
+    let routes = setup_routes(auth_manager, cookie_key_string.clone());
+    let routes_dos = auth_routes(Arc::new(auth_manager_dos), cookie_key_string.clone());
 
     let app = Router::new()
-        .nest("/auth", routes)
+        .nest("/auth", routes_dos)
+        // .nest("/auth", routes)
         .route("/protected", get(protected))
         .layer(CookieManagerLayer::new());
 

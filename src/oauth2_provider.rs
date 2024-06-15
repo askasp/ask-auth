@@ -6,7 +6,7 @@ use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, T
 use reqwest::Response;
 
 #[derive(Debug, Clone)]
-pub struct UserId(pub String);
+pub struct UserIdOld(pub String);
 
 pub struct Oauth2Config {
     pub scopes: Vec<String>,
@@ -53,7 +53,7 @@ pub trait Oauth2Provider: Send + Sync {
         &self,
         user_info: Response,
         state_params: HashMap<String, String>,
-    ) -> Result<UserId, anyhow::Error>;
+    ) -> Result<UserIdOld, anyhow::Error>;
     async fn get_user_info(&self, token: &str) -> Result<Response, anyhow::Error> {
         let client = reqwest::Client::new();
         let user_info = client

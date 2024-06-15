@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context;
 use ask_auth::{
-    oauth2_provider::{Oauth2Config, UserId},
+    oauth2_provider::{Oauth2Config, UserIdOld},
     Oauth2Provider,
 };
 use reqwest::Response;
@@ -41,7 +41,7 @@ impl Oauth2Provider for GithubProvider {
         &self.oauth2_config
     }
     #[instrument(skip(self))]
-    async fn authenticate_and_upsert(&self, user_info: Response, state_param: HashMap<String,String>) -> Result<UserId, anyhow::Error> {
+    async fn authenticate_and_upsert(&self, user_info: Response, state_param: HashMap<String,String>) -> Result<UserIdOld, anyhow::Error> {
         event!(Level::INFO, "Authenticating user got json");
 
         let vipps_user: GithubUser = user_info.json::<GithubUser>().await.unwrap();
@@ -56,7 +56,7 @@ impl Oauth2Provider for GithubProvider {
         );
 
         event!(Level::INFO, "Inserting new session");
-        Ok(UserId(vipps_user.id.clone().to_string()))
+        Ok(UserIdOld(vipps_user.id.clone().to_string()))
     }
     #[instrument(skip(self))]
     async fn get_user_info(&self, token: &str) -> Result<Response, anyhow::Error> {
