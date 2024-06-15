@@ -1,6 +1,5 @@
 use crate::auth_manager::AuthProviderManager;
 use crate::auth_provider::{self, UserId};
-use crate::{oauth2_manager::Oauth2Manager, Oauth2Provider};
 use anyhow::Context;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
