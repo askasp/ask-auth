@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context;
 use ask_auth::{
-    oauth2_provider::{Oauth2Config, UserId},
+    oauth2_provider::{Oauth2Config, UserIdOld},
     Oauth2Provider,
 };
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
@@ -41,7 +41,7 @@ impl Oauth2Provider for VippsProvider {
     fn get_config(&self) -> &Oauth2Config {
         &self.oauth2_config
     }
-    async fn authenticate_and_upsert(&self, user_info: Response, state_param: HashMap<String,String>) -> Result<UserId, anyhow::Error> {
+    async fn authenticate_and_upsert(&self, user_info: Response, state_param: HashMap<String,String>) -> Result<UserIdOld, anyhow::Error> {
         let vipps_user: VippsUser = user_info.json::<VippsUser>().await.unwrap();
         event!(
             Level::INFO,
@@ -53,6 +53,6 @@ impl Oauth2Provider for VippsProvider {
             .unwrap()
             .insert(vipps_user.sub.clone(), vipps_user.sub.clone());
 
-        Ok(UserId(vipps_user.sub.clone()))
+        Ok(UserIdOld(vipps_user.sub.clone()))
     }
 }
