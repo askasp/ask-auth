@@ -150,7 +150,7 @@ async fn auth_start(
                         .path("/")
                         .http_only(true)
                         .same_site(get_same_site_attr(secure_cookie))
-                        .secure(secure_cookie)
+                        .secure(true)
                         .build();
 
                     cookies.add(cookie);
@@ -159,7 +159,7 @@ async fn auth_start(
                         .path("/")
                         .http_only(true)
                         .same_site(get_same_site_attr(secure_cookie))
-                        .secure(secure_cookie)
+                        .secure(true)
                         .build();
 
                     cookies.add(pkce_cookie);
@@ -175,7 +175,7 @@ async fn auth_start(
                         let state_cookie = Cookie::build((STATE_COOKE, state_param_string))
                             .path("/")
                             .http_only(true)
-                            .secure(secure_cookie)
+                            .secure(true)
                             .same_site(get_same_site_attr(secure_cookie))
                             .expires(time::OffsetDateTime::now_utc() + time::Duration::hours(1))
                             .finish();
@@ -414,6 +414,7 @@ async fn auth_callback(
                         .http_only(true)
                         .expires(time::OffsetDateTime::now_utc() + time::Duration::days(30))
                         .secure(secure_cookie)
+                        .same_site(get_same_site_attr(secure_cookie))
                         .build();
                     private_cookies.add(cookie);
 
