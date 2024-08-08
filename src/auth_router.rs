@@ -11,6 +11,7 @@ use axum::{
     routing::get,
     Extension, Json, Router,
 };
+use magic_crypt::generic_array::typenum::False;
 use oauth2::{
     basic::{BasicClient, BasicTokenType},
     reqwest::async_http_client,
@@ -20,6 +21,7 @@ use oauth2::{
 use oauth2::{PkceCodeChallenge, PkceCodeVerifier};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tower_cookies::cookie::SameSite;
 use std::collections::HashMap;
 use std::sync::{Arc, Once, OnceLock};
 use thiserror::Error;
@@ -120,7 +122,9 @@ async fn auth_start(
         auth_provider::AuthProviderConfig::OidcProvider {
             basic_client,
             scopes,
+            secure_cookie,
             ..
+            
             // user_info_headers,
         } => {
             let mut client_builder = basic_client.authorize_url(CsrfToken::new_random);
@@ -145,7 +149,8 @@ async fn auth_start(
                     let cookie = Cookie::build((CSRF_TOKEN_NAME, csrf_token.secret().to_owned()))
                         .path("/")
                         .http_only(true)
-                        .secure(true)
+                        .same_site(get_same_site_attr(secure_cookie))
+                        .secure(secure_cookie)
                         .build();
 
                     cookies.add(cookie);
@@ -153,7 +158,8 @@ async fn auth_start(
                     let pkce_cookie = Cookie::build((PKCE_CHALLENGE, pkce_challenge_clone))
                         .path("/")
                         .http_only(true)
-                        .secure(true)
+                        .same_site(get_same_site_attr(secure_cookie))
+                        .secure(secure_cookie)
                         .build();
 
                     cookies.add(pkce_cookie);
@@ -163,12 +169,14 @@ async fn auth_start(
                         "State param writing to cookie is {:?}",
                         state_param.state_params
                     );
+                    
 
                     if let Some(state_param_string) = state_param.state_params {
                         let state_cookie = Cookie::build((STATE_COOKE, state_param_string))
                             .path("/")
                             .http_only(true)
-                            .secure(true)
+                            .secure(secure_cookie)
+                            .same_site(get_same_site_attr(secure_cookie))
                             .expires(time::OffsetDateTime::now_utc() + time::Duration::hours(1))
                             .finish();
                         cookies.add(state_cookie);
@@ -611,5 +619,13 @@ async fn login(
     match user_id {
         Some(_user_id) => Html("<p> You are logged in already</p>".to_string()),
         None => Html(html_content),
+    }
+}
+
+
+fn get_same_site_attr(secure_cookie: bool) -> SameSite{
+    match secure_cookie {
+        true => SameSite::Strict,
+        false => SameSite::None,
     }
 }
