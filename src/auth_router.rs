@@ -317,6 +317,7 @@ async fn auth_callback(
             basic_client,
             user_info_url,
             user_info_headers,
+            secure_cookie,
             ..
         } => {
             event!(
@@ -395,7 +396,7 @@ async fn auth_callback(
                 })?;
 
             event!(Level::DEBUG, "user_id received by upserting {}", user_id.0);
-
+            
             match provider.is_native {
                 false => {
                     let key = KEY.get().unwrap();
@@ -404,7 +405,7 @@ async fn auth_callback(
                         .path("/")
                         .http_only(true)
                         .expires(time::OffsetDateTime::now_utc() + time::Duration::days(30))
-                        .secure(true)
+                        .secure(secure_cookie)
                         .build();
                     private_cookies.add(cookie);
 

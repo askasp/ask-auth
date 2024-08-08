@@ -14,6 +14,8 @@ pub enum AuthProviderConfig {
         user_info_url: String,
         user_info_headers: Option<HashMap<String, String>>,
         scopes: Vec<String>,
+        secure_cookie: bool,
+        
     },
 }
 
@@ -33,6 +35,7 @@ impl AuthProviderConfig {
         user_info_url: String,
         scopes: Vec<String>,
         user_info_headers: Option<HashMap<String, String>>,
+        secure_cookie: bool,
     ) -> Self {
         let basic_client = oauth2::basic::BasicClient::new(
             ClientId::new(client_id),
@@ -51,6 +54,7 @@ impl AuthProviderConfig {
             user_info_url,
             scopes,
             user_info_headers,
+            secure_cookie,
         }
     }
 }
