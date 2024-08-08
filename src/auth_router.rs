@@ -11,7 +11,7 @@ use axum::{
     routing::get,
     Extension, Json, Router,
 };
-use magic_crypt::generic_array::typenum::False;
+use magic_crypt::generic_array::typenum::{False, Same};
 use oauth2::{
     basic::{BasicClient, BasicTokenType},
     reqwest::async_http_client,
@@ -149,7 +149,6 @@ async fn auth_start(
                     let cookie = Cookie::build((CSRF_TOKEN_NAME, csrf_token.secret().to_owned()))
                         .path("/")
                         .http_only(true)
-                        .same_site(get_same_site_attr(secure_cookie))
                         .secure(true)
                         .build();
 
@@ -158,7 +157,6 @@ async fn auth_start(
                     let pkce_cookie = Cookie::build((PKCE_CHALLENGE, pkce_challenge_clone))
                         .path("/")
                         .http_only(true)
-                        .same_site(get_same_site_attr(secure_cookie))
                         .secure(true)
                         .build();
 
@@ -176,7 +174,6 @@ async fn auth_start(
                             .path("/")
                             .http_only(true)
                             .secure(true)
-                            .same_site(get_same_site_attr(secure_cookie))
                             .expires(time::OffsetDateTime::now_utc() + time::Duration::hours(1))
                             .finish();
                         cookies.add(state_cookie);
@@ -414,7 +411,6 @@ async fn auth_callback(
                         .http_only(true)
                         .expires(time::OffsetDateTime::now_utc() + time::Duration::days(30))
                         .secure(secure_cookie)
-                        .same_site(get_same_site_attr(secure_cookie))
                         .build();
                     private_cookies.add(cookie);
 
@@ -624,9 +620,3 @@ async fn login(
 }
 
 
-fn get_same_site_attr(secure_cookie: bool) -> SameSite{
-    match secure_cookie {
-        true => SameSite::Lax,
-        false => SameSite::None,
-    }
-}
