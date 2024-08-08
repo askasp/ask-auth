@@ -625,7 +625,7 @@ async fn login(
 
 fn get_same_site_attr(secure_cookie: bool) -> SameSite{
     match secure_cookie {
-        true => SameSite::Strict,
+        true => SameSite::Lax,
         false => SameSite::None,
     }
 }
