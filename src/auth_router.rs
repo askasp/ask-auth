@@ -1,5 +1,9 @@
 use crate::auth_manager::AuthProviderManager;
 use crate::auth_provider::{self, UserId};
+use jsonwebtoken::{decode, Validation, DecodingKey, EncodingKey,Algorithm, Header,encode};
+use time::{Duration, OffsetDateTime};
+
+
 use anyhow::Context;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
@@ -37,6 +41,28 @@ const PKCE_CHALLENGE: &str = "PKCE_CHALLENGE";
 
 const STATE_COOKE: &str = "state_cookie";
 use magic_crypt::{new_magic_crypt, MagicCrypt256, MagicCryptTrait};
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    sub: String, // The subject or user identifier
+    exp: usize,  // Expiration time as a Unix timestamp
+    iat: usize,  // Issued at time
+}
+
+fn create_access_token(user_id: &str, secret: &[u8]) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = OffsetDateTime::now_utc();
+    let exp = (now + Duration::days(1)).unix_timestamp() as usize; // Set expiration time to 1 day from now
+    let iat = now.unix_timestamp() as usize; // Issued at time
+
+    let claims = Claims {
+        sub: user_id.to_owned(),
+        exp,
+        iat,
+    };
+
+    let token = encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(secret))?;
+    Ok(token)
+}
+
 
 #[derive(Debug, Clone)]
 struct AskAuthAppState2 {
@@ -77,7 +103,7 @@ pub fn auth_routes(auth_manager: Arc<AuthProviderManager>, cookie_key: String) -
     KEY.set(Key::derive_from(cookie_key.clone().as_bytes()))
         .ok();
 
-    MC.set(new_magic_crypt!(cookie_key, 256)).ok();
+    // MC.set(new_magic_crypt!(cookie_key, 256)).ok();
 
     let app_state = AskAuthAppState2::new();
 
@@ -418,7 +444,10 @@ async fn auth_callback(
                 }
                 true => {
                     let mc = MC.get().unwrap();
-                    let user_token = mc.encrypt_str_to_base64(&user_id.0);
+                    let user_token = create_access_token(&user_id.0, KEY.get().unwrap().encryption()).map_err(|e| {
+                        event!(Level::ERROR, "Failed to create access token {:?}", e);
+                        AuthError::AutenticateError
+                    })?;
                     //return user_id as an encrypted token, with a short expiry time
                     let response_json = json!({ "access_token": user_token});
                     Ok((StatusCode::OK, axum::Json(response_json)).into_response())
@@ -441,6 +470,14 @@ impl IntoResponse for AuthRedirect {
     }
 }
 
+fn validate_access_token(token: &str, secret: &[u8]) -> Result<Claims, jsonwebtoken::errors::Error> {
+   let mut validation = Validation::new(Algorithm::HS256);
+    validation.leeway = 60; // Allow for some clock skew
+
+    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret), &validation)?;
+
+    Ok(token_data.claims)}
+
 #[async_trait]
 impl<S> FromRequestParts<S> for UserId
 where
@@ -450,7 +487,6 @@ where
 
     #[instrument(skip_all)]
     async fn from_request_parts(req: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        event!(Level::DEBUG, "In from_request_parts");
         // Check for the Authorization header
 
         // let auth_header = req.headers.get("Authorization");
@@ -459,12 +495,9 @@ where
                 if auth_str.starts_with("Bearer ") {
                     let token = &auth_str["Bearer ".len()..];
                     event!(Level::INFO, "Found Authorization header: {}", token);
-                    let mc = MC.get().unwrap();
-
-                    // Decode the token (assuming JWT or similar)
-                    let maybe_user_id = mc.decrypt_base64_to_string(token);
+                    let maybe_user_id = validate_access_token(token, KEY.get().unwrap().encryption());
                     if let Ok(user_id) = maybe_user_id {
-                        return Ok(UserId(user_id));
+                        return Ok(UserId(user_id.sub));
                     }
                 }
             }
