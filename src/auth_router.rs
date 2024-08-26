@@ -450,7 +450,7 @@ where
 
     #[instrument(skip_all)]
     async fn from_request_parts(req: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        event!(Level::INFO, "In from_request_parts");
+        event!(Level::DEBUG, "In from_request_parts");
         // Check for the Authorization header
 
         // let auth_header = req.headers.get("Authorization");
@@ -473,7 +473,7 @@ where
         let cookies = Cookies::from_request_parts(req, state).await.unwrap();
         let key = KEY.get().unwrap();
         let private_cookies = cookies.private(key);
-        event!(Level::INFO, "In from_request_parts got private cookies");
+        event!(Level::DEBUG, "In from_request_parts got private cookies");
 
         let user_id_cookie_res = private_cookies.get(USER_COOKIE_NAME);
 
