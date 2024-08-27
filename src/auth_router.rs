@@ -34,7 +34,6 @@ use tower_cookies::{cookie::time, Cookie, CookieManagerLayer, Cookies, Key};
 use tracing::{event, instrument, Level};
 
 pub static KEY: OnceLock<Key> = OnceLock::new();
-pub static MC: OnceLock<MagicCrypt256> = OnceLock::new();
 const USER_COOKIE_NAME: &str = "ask-auth-id";
 const CSRF_TOKEN_NAME: &str = "CSRF_TOKEN";
 const PKCE_CHALLENGE: &str = "PKCE_CHALLENGE";
@@ -103,7 +102,6 @@ pub fn auth_routes(auth_manager: Arc<AuthProviderManager>, cookie_key: String) -
     KEY.set(Key::derive_from(cookie_key.clone().as_bytes()))
         .ok();
 
-    // MC.set(new_magic_crypt!(cookie_key, 256)).ok();
 
     let app_state = AskAuthAppState2::new();
 
@@ -443,7 +441,6 @@ async fn auth_callback(
                     Ok(Redirect::temporary("/").into_response())
                 }
                 true => {
-                    let mc = MC.get().unwrap();
                     let user_token = create_access_token(&user_id.0, KEY.get().unwrap().encryption()).map_err(|e| {
                         event!(Level::ERROR, "Failed to create access token {:?}", e);
                         AuthError::AutenticateError
